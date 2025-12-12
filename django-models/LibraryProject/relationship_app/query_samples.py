@@ -28,4 +28,6 @@ def get_librarian_for_library(library_name: str):
         library = Library.objects.get(name=library_name)
     except Library.DoesNotExist:
         return None
-    return library.librarian
+
+    librarian = Librarian.objects.get(library=library)
+    return librarian
