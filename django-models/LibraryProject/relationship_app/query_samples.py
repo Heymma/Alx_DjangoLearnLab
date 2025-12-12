@@ -5,7 +5,8 @@ def get_books_by_author(author_name: str):
     """
     Query all books by a specific author.
     """
-    return Book.objects.filter(author__name=author_name)
+    author = Author.objects.get(name=author_name)
+    return Book.objects.filter(author=author)
 
 
 def get_books_in_library(library_name: str):
@@ -27,5 +28,4 @@ def get_librarian_for_library(library_name: str):
         library = Library.objects.get(name=library_name)
     except Library.DoesNotExist:
         return None
-    # thanks to related_name="librarian" we can access it like this:
     return library.librarian
