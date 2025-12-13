@@ -86,3 +86,21 @@ def librarian_view(request):
 @user_passes_test(is_member)
 def member_view(request):
     return render(request, "relationship_app/member_view.html")
+
+from django.contrib.auth.decorators import permission_required
+from django.http import HttpResponse
+
+
+@permission_required("relationship_app.can_add_book")
+def add_book(request):
+    return HttpResponse("Book added successfully.")
+
+
+@permission_required("relationship_app.can_change_book")
+def edit_book(request, pk):
+    return HttpResponse("Book edited successfully.")
+
+
+@permission_required("relationship_app.can_delete_book")
+def delete_book(request, pk):
+    return HttpResponse("Book deleted successfully.")
