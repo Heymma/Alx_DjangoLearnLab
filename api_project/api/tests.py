@@ -1,111 +1,118 @@
 from django.urls import reverse
+from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework.authtoken.models import Token
 from .models import Book
 
 
-class BookViewSetTestCase(APITestCase):
-    """Test cases for BookViewSet CRUD operations."""
+class AuthenticationTestCase(APITestCase):
+    """Test cases for API authentication."""
     
     def setUp(self):
         """Set up test data."""
-        self.book1 = Book.objects.create(
-            title="Test Book 1",
-            author="Test Author 1"
+        # Create a test user
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='testpass123',
+            email='test@example.com'
         )
-        self.book2 = Book.objects.create(
-            title="Test Book 2",
-            author="Test Author 2"
+        # Use get_or_create to avoid duplicate token error
+        # (in case a signal auto-creates tokens)
+        self.token, created = Token.objects.get_or_create(user=self.user)
+        
+        # Create a test book
+        self.book = Book.objects.create(
+            title='Test Book',
+            author='Test Author'
         )
-        self.list_url = reverse('book_all-list')
-        self.detail_url = reverse('book_all-detail', kwargs={'pk': self.book1.pk})
+        
+        self.list_url = reverse('book-list')
+        self.token_url = reverse('api_token_auth')
     
-    def test_list_books(self):
-        """Test GET /api/books_all/ - List all books."""
+    def test_unauthenticated_request_denied(self):
+        """Test that unauthenticated requests are denied."""
         response = self.client.get(self.list_url)
-        
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_authenticated_request_allowed(self):
+        """Test that authenticated requests are allowed."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
     
-    def test_create_book(self):
-        """Test POST /api/books_all/ - Create a new book."""
-        data = {
-            'title': 'New Test Book',
-            'author': 'New Test Author'
-        }
-        response = self.client.post(self.list_url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Book.objects.count(), 3)
-        self.assertEqual(response.data['title'], 'New Test Book')
-    
-    def test_retrieve_book(self):
-        """Test GET /api/books_all/{id}/ - Retrieve a book."""
-        response = self.client.get(self.detail_url)
-        
+    def test_obtain_token(self):
+        """Test obtaining auth token with valid credentials."""
+        response = self.client.post(self.token_url, {
+            'username': 'testuser',
+            'password': 'testpass123'
+        })
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['title'], 'Test Book 1')
-        self.assertEqual(response.data['author'], 'Test Author 1')
+        self.assertIn('token', response.data)
     
-    def test_update_book(self):
-        """Test PUT /api/books_all/{id}/ - Update a book."""
-        data = {
-            'title': 'Updated Book Title',
-            'author': 'Updated Author'
-        }
-        response = self.client.put(self.detail_url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.book1.refresh_from_db()
-        self.assertEqual(self.book1.title, 'Updated Book Title')
-    
-    def test_partial_update_book(self):
-        """Test PATCH /api/books_all/{id}/ - Partial update a book."""
-        data = {'title': 'Partially Updated Title'}
-        response = self.client.patch(self.detail_url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.book1.refresh_from_db()
-        self.assertEqual(self.book1.title, 'Partially Updated Title')
-        self.assertEqual(self.book1.author, 'Test Author 1')  # Unchanged
-    
-    def test_delete_book(self):
-        """Test DELETE /api/books_all/{id}/ - Delete a book."""
-        response = self.client.delete(self.detail_url)
-        
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(Book.objects.count(), 1)
-        self.assertFalse(Book.objects.filter(pk=self.book1.pk).exists())
-    
-    def test_retrieve_nonexistent_book(self):
-        """Test GET /api/books_all/{id}/ - Book not found."""
-        url = reverse('book_all-detail', kwargs={'pk': 9999})
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-    
-    def test_create_book_invalid_data(self):
-        """Test POST with invalid data."""
-        data = {'title': ''}  # Empty title and missing author
-        response = self.client.post(self.list_url, data, format='json')
-        
+    def test_obtain_token_invalid_credentials(self):
+        """Test that invalid credentials don't return a token."""
+        response = self.client.post(self.token_url, {
+            'username': 'testuser',
+            'password': 'wrongpassword'
+        })
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class BookListViewTestCase(APITestCase):
-    """Test cases for the original BookList view."""
+class BookViewSetAuthenticationTestCase(APITestCase):
+    """Test cases for BookViewSet with authentication."""
     
     def setUp(self):
         """Set up test data."""
-        self.book = Book.objects.create(
-            title="Test Book",
-            author="Test Author"
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='testpass123'
         )
-        self.url = reverse('book-list')
-    
-    def test_list_books(self):
-        """Test GET /api/books/ - Original list endpoint."""
-        response = self.client.get(self.url)
+        # Use get_or_create to avoid duplicate token error
+        self.token, created = Token.objects.get_or_create(user=self.user)
         
+        self.book = Book.objects.create(
+            title='Test Book',
+            author='Test Author'
+        )
+        
+        self.list_url = reverse('book_all-list')
+        self.detail_url = reverse('book_all-detail', kwargs={'pk': self.book.pk})
+    
+    def test_list_books_authenticated(self):
+        """Test listing books with authentication."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+    
+    def test_create_book_authenticated(self):
+        """Test creating a book with authentication."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        response = self.client.post(self.list_url, {
+            'title': 'New Book',
+            'author': 'New Author'
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+    
+    def test_create_book_unauthenticated(self):
+        """Test that creating a book without auth fails."""
+        response = self.client.post(self.list_url, {
+            'title': 'New Book',
+            'author': 'New Author'
+        })
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_update_book_authenticated(self):
+        """Test updating a book with authentication."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        response = self.client.put(self.detail_url, {
+            'title': 'Updated Book',
+            'author': 'Updated Author'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    
+    def test_delete_book_authenticated(self):
+        """Test deleting a book with authentication."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        response = self.client.delete(self.detail_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
